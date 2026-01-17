@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>RSVP Speed Reader (Focus-Optimized)</title>
+  <style>
+    :root{
+      /* Focus-optimized palette */
+      --bg: #0b0f14;         /* deep charcoal-blue (less harsh than pure black) */
+      --panel: #0d131a;
+      --border: #1b2632;
+
+      --text: #e7ecf2;       /* soft off-white (reduced glare) */
+      --muted: #aab7c6;
+
+      --anchor: #35d0c6;     /* muted teal/cyan: salient but not "alarm red" */
+      --anchor-soft: rgba(53, 208, 198, 0.22);
+
+      --btn: #101a24;
+      --btnHover: #162233;
+
+      --shadow: rgba(0,0,0,0.45);
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+
+    .wrap { height: 100vh; display: flex; flex-direction: column; }
+
+    .reader {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      padding: 24px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Fixation guide: subtle vertical line at exact center */
+    .reader::before{
+      content:"";
+      position:absolute;
+      top:0; bottom:0;
+      left:50%;
+      width:2px;
+      transform: translateX(-1px);
+      background: linear-gradient(
+        to bottom,
+        rgba(53,208,198,0.00),
+        rgba(53,208,198,0.10),
+        rgba(53,208,198,0.10),
+        rgba(53,208,198,0.00)
+      );
+      pointer-events:none;
+      opacity: 0.9;
+    }
+
+    #word {
+      font-size: 64px;
+      line-height: 1.1;
+      letter-spacing: 0.4px;
+      text-shadow: 0 2px 10px var(--shadow);
+      padding: 10px 14px;
+      border-radius: 12px;
+      /* subtle “focus halo” around the foveal area */
+      background: radial-gradient(circle at center, rgba(255,255,255,0.06), rgba(255,255,255,0.00) 62%);
+    }
+
+    .orp {
+      color: var(--anchor);
+      text-shadow: 0 0 14px var(--anchor-soft);
+    }
+
+    .controls {
+      border-top: 1px solid var(--border);
+      padding: 12px 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 10px;
+      align-items: center;
+      background: var(--panel);
+    }
+
+    .controls > * { font-size: 14px; }
+
+    input[type="range"] { width: 100%; }
+
+    textarea {
+      width: 100%;
+      height: 110px;
+      background: #0a1017;
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 10px;
+      resize: vertical;
+      box-sizing: border-box;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      outline: none;
+    }
+
+    textarea:focus { border-color: rgba(53,208,198,0.55); box-shadow: 0 0 0 2px rgba(53,208,198,0.10); }
+
+    button {
+      background: var(--btn);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      cursor: pointer;
+      border-radius: 10px;
+    }
+
+    button:hover { background: var(--btnHover); }
+
+    .mini { opacity: 0.86; font-size: 12px; color: var(--muted); }
+
+    .row { display: flex; gap: 10px; align-items: center; }
+    .row > label { min-width: 70px; color: var(--muted); }
+
+    .hint { color: var(--muted); }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="reader">
+    <div id="word">Paste text below, click “Load Text”, then Play (Space).</div>
+  </div>
+
+  <div style="padding:12px 16px; background: #0a1017; border-top: 1px solid var(--border);">
+    <div class="row" style="margin-bottom:8px;">
+      <input type="file" id="file" accept=".txt,text/plain" />
+      <button id="loadFile">Load File</button>
+      <button id="loadText">Load Text</button>
+      <span class="mini" id="status"></span>
+    </div>
+    <textarea id="text" placeholder="Paste public-domain text here..."></textarea>
+  </div>
+
+  <div class="controls">
+    <div>
+      <div class="row"><label>WPM</label><input id="wpm" type="range" min="100" max="1200" value="350"></div>
+      <div class="mini">Current: <span id="wpmVal">350</span></div>
+    </div>
+
+    <div>
+      <div class="row"><label>Ramp</label><input id="ramp" type="range" min="0" max="60" value="15"></div>
+      <div class="mini">Seconds to reach target: <span id="rampVal">15</span></div>
+    </div>
+
+    <div>
+      <div class="row"><label>Slow</label><input id="punct" type="range" min="1" max="4" step="0.25" value="2"></div>
+      <div class="mini">Punctuation slowdown: <span id="punctVal">2</span>x</div>
+    </div>
+
+    <div>
+      <div class="row" style="justify-content:space-between;">
+        <button id="back">⟵ Back</button>
+        <button id="play">Play</button>
+        <button id="fwd">Fwd ⟶</button>
+      </div>
+      <div class="mini hint">
+        Index: <span id="idx">0</span> / <span id="len">0</span>
+        &nbsp;•&nbsp; Space: Play/Pause &nbsp;•&nbsp; ←/→: step
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const elWord = document.getElementById("word");
+  const elText = document.getElementById("text");
+  const elStatus = document.getElementById("status");
+
+  const elWpm = document.getElementById("wpm");
+  const elWpmVal = document.getElementById("wpmVal");
+  const elRamp = document.getElementById("ramp");
+  const elRampVal = document.getElementById("rampVal");
+  const elPunct = document.getElementById("punct");
+  const elPunctVal = document.getElementById("punctVal");
+
+  const btnPlay = document.getElementById("play");
+  const btnBack = document.getElementById("back");
+  const btnFwd = document.getElementById("fwd");
+  const btnLoadText = document.getElementById("loadText");
+  const btnLoadFile = document.getElementById("loadFile");
+  const fileInput = document.getElementById("file");
+
+  const elIdx = document.getElementById("idx");
+  const elLen = document.getElementById("len");
+
+  let words = [];
+  let i = 0;
+  let timer = null;
+  let playing = false;
+  let startTime = null;
+
+  function cleanText(s) {
+    return s.replace(/\r\n/g, "\n").replace(/\s+/g, " ").trim();
+  }
+
+  function tokenize(s) {
+    const cleaned = cleanText(s);
+    if (!cleaned) return [];
+    return cleaned.split(" ");
+  }
+
+  // ORP heuristic: anchor near the "optimal recognition point"
+  function orpIndex(word) {
+    const n = word.length;
+    if (n <= 1) return 0;
+    if (n <= 5) return 1;
+    if (n <= 9) return 2;
+    if (n <= 13) return 3;
+    return 4;
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, (c) => ({
+      "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
+    }[c]));
+  }
+
+  function renderWord(word) {
+    if (!word) return;
+
+    // Strip leading/trailing punctuation for anchor placement, but display original.
+    const plain = word.replace(/^[("\"'\[{<]+|[)"' \]}>,.;:!?]+$/g, "");
+    const anchor = Math.min(orpIndex(plain), Math.max(plain.length - 1, 0));
+
+    // Find the anchor-th alphanumeric character in the displayed word.
+    let count = -1;
+    let anchorPos = 0;
+    for (let k = 0; k < word.length; k++) {
+      if (/[A-Za-z0-9]/.test(word[k])) count++;
+      if (count === anchor) { anchorPos = k; break; }
+    }
+
+    const left = word.slice(0, anchorPos);
+    const mid = word.slice(anchorPos, anchorPos + 1);
+    const right = word.slice(anchorPos + 1);
+
+    elWord.innerHTML = `${escapeHtml(left)}<span class="orp">${escapeHtml(mid)}</span>${escapeHtml(right)}`;
+    elIdx.textContent = String(i);
+  }
+
+  function baseDelayMs(targetWpm) {
+    return 60000 / Math.max(1, targetWpm);
+  }
+
+  function currentWpm() {
+    const target = Number(elWpm.value);
+    const rampSec = Number(elRamp.value);
+    if (!playing || rampSec <= 0 || !startTime) return target;
+
+    const t = (performance.now() - startTime) / 1000;
+    if (t >= rampSec) return target;
+
+    // Start at 60% of target and ramp to 100%
+    const start = target * 0.6;
+    return Math.round(start + (target - start) * (t / rampSec));
+  }
+
+  function isPunctHeavy(word) {
+    return /[.,;:!?]$/.test(word);
+  }
+
+  function step(dir) {
+    if (!words.length) return;
+    i = Math.min(words.length - 1, Math.max(0, i + dir));
+    renderWord(words[i]);
+  }
+
+  function tick() {
+    if (!playing || !words.length) return;
+
+    const wpmNow = currentWpm();
+    const d0 = baseDelayMs(wpmNow);
+
+    const w = words[i] || "";
+    renderWord(w);
+
+    let d = d0;
+    if (isPunctHeavy(w)) d *= Number(elPunct.value);
+
+    i++;
+    if (i >= words.length) { stop(); return; }
+    timer = setTimeout(tick, d);
+  }
+
+  function play() {
+    if (!words.length) { elStatus.textContent = "Load text first."; return; }
+    if (playing) return;
+    playing = true;
+    startTime = performance.now();
+    btnPlay.textContent = "Pause";
+    tick();
+  }
+
+  function stop() {
+    playing = false;
+    btnPlay.textContent = "Play";
+    if (timer) clearTimeout(timer);
+    timer = null;
+  }
+
+  function toggle() { playing ? stop() : play(); }
+
+  function loadFromText() {
+    words = tokenize(elText.value);
+    i = 0;
+    elLen.textContent = String(words.length);
+    elStatus.textContent = words.length ? "Loaded." : "No text found.";
+    renderWord(words[0] || "Paste text below, click “Load Text”, then Play (Space).");
+    stop();
+  }
+
+  async function loadFromFile() {
+    const f = fileInput.files && fileInput.files[0];
+    if (!f) { elStatus.textContent = "Choose a .txt file first."; return; }
+    const text = await f.text();
+    elText.value = text;
+    loadFromText();
+  }
+
+  // UI wiring
+  elWpm.addEventListener("input", () => elWpmVal.textContent = elWpm.value);
+  elRamp.addEventListener("input", () => elRampVal.textContent = elRamp.value);
+  elPunct.addEventListener("input", () => elPunctVal.textContent = elPunct.value);
+
+  btnPlay.addEventListener("click", toggle);
+  btnBack.addEventListener("click", () => { stop(); step(-10); });
+  btnFwd.addEventListener("click", () => { stop(); step(10); });
+  btnLoadText.addEventListener("click", loadFromText);
+  btnLoadFile.addEventListener("click", loadFromFile);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.code === "Space") { e.preventDefault(); toggle(); }
+    if (e.code === "ArrowLeft") { e.preventDefault(); stop(); step(-1); }
+    if (e.code === "ArrowRight") { e.preventDefault(); stop(); step(1); }
+  });
+})();
+</script>
+</body>
+</html>
